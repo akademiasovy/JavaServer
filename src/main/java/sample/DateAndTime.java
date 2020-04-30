@@ -1,7 +1,10 @@
 package sample;
 
+import org.json.JSONObject;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import javax.xml.ws.Response;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -50,10 +53,20 @@ public class DateAndTime {
     }
 
     @RequestMapping(method=RequestMethod.POST, value="/signup")
-    public String signup(@RequestBody String data){
+    public ResponseEntity<String> signup(@RequestBody String data){
         System.out.println(data);
+                return ResponseEntity.status(201).body(data);
+    }
 
-        return data;
+    @RequestMapping(method=RequestMethod.POST, value="/logout")
+    public ResponseEntity<String> logout(@RequestBody String data){
+        JSONObject obj = new JSONObject(data);
+        JSONObject res = new JSONObject();
+        System.out.println(obj.getString("login"));
+        System.out.println(data);
+        res.put("message","Logouot succesful");
+        res.put("login","kral");
+        return ResponseEntity.status(200).body(res.toString());
     }
 
 }
