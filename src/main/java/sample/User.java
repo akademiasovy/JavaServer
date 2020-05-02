@@ -30,4 +30,16 @@ public class User {
     public String getPassword() {
         return password;
     }
+
+    public void setPassword(String passwoord) {
+        this.password = passwoord;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
+    }
+
+    public String getToken() {
+        return token;
+    }
 }
