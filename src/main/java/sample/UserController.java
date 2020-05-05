@@ -16,6 +16,8 @@ import java.util.Random;
 @RestController
 public class UserController {
     List<User> list =  new ArrayList<User>();
+    List<String> log =  new ArrayList<String>(); // {"type":"login","login":"peter","datetime":"04052020 09:17:43"}
+// {"type":"logout","login":"peter","datetime":"04052020 09:58:04"}
 
     public UserController() {
         list.add(new User("Roman","Simko","roman","heslo"));
@@ -231,4 +233,38 @@ public class UserController {
         else return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body("{\"error\":\"Invalid token\")");
     }
 
+
+    @RequestMapping(method=RequestMethod.POST, value="/changepassword")
+    public ResponseEntity<String> changePasswd(@RequestBody String data){
+        //System.out.println(data);
+        JSONObject objj = new JSONObject(data);
+
+        if(objj.has("oldpassword") && objj.has("newpassword")&& objj.has("login"))
+        { // vstup je ok, mame vsetky kluce
+            String login = objj.getString("login");
+            String oldpassword = objj.getString("oldpassword");
+            String newpassword = objj.getString("newpassword");
+            if(oldpassword.isEmpty() || newpassword.isEmpty()){
+                JSONObject res = new JSONObject();
+                res.put("error","Passwords are mandatory fields");
+                return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+            }
+            if(!existLogin(login) || !checkPassword(login,oldpassword)){
+                JSONObject res = new JSONObject();
+                res.put("error","Invalid login or password");
+                return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+            }
+
+            String hashPass = hash(objj.getString("newpassword"));
+
+            User user = getUser(login);
+            user.setPassword(hashPass);
+            return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body("{}");
+        }
+        else{
+            JSONObject res = new JSONObject();
+            res.put("error","Invalid body request");
+            return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+        }
+    }
 }
