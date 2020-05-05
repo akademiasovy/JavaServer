@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -16,8 +17,7 @@ import java.util.Random;
 @RestController
 public class UserController {
     List<User> list =  new ArrayList<User>();
-    List<String> log =  new ArrayList<String>(); // {"type":"login","login":"peter","datetime":"04052020 09:17:43"}
-// {"type":"logout","login":"peter","datetime":"04052020 09:58:04"}
+    List<String> log =  new ArrayList<String>();
 
     public UserController() {
         list.add(new User("Roman","Simko","roman","heslo"));
@@ -54,6 +54,7 @@ public class UserController {
                     String token = generateToken();
                     res.put("token",token);
                     loggedUser.setToken(token);
+                   writeLog("login",loggedUser.getLogin());
                     return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body(res.toString());
             }
             else{
@@ -134,6 +135,7 @@ public class UserController {
         if(user!=null && isTokenValid(token)){
             // login aj token su ok, ideme odhlasit
             user.setToken(null);
+            writeLog("logout",user.getLogin());
             return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body("{}");
         }
         JSONObject res = new JSONObject();
@@ -233,6 +235,13 @@ public class UserController {
         else return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body("{\"error\":\"Invalid token\")");
     }
 
+    private void writeLog(String type, String login) {
+        JSONObject obj = new JSONObject();
+        obj.put("type",type);
+        obj.put("login",login);
+        obj.put("datetime",getCurrentDateTime());
+        log.add(obj.toString());
+    }
 
     @RequestMapping(method=RequestMethod.POST, value="/changepassword")
     public ResponseEntity<String> changePasswd(@RequestBody String data){
@@ -259,6 +268,7 @@ public class UserController {
 
             User user = getUser(login);
             user.setPassword(hashPass);
+            writeLog("password change",user.getLogin());
             return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body("{}");
         }
         else{
@@ -267,4 +277,46 @@ public class UserController {
             return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
         }
     }
+
+    @RequestMapping(method=RequestMethod.GET, path="/log")
+    public ResponseEntity<String> getLogInfo(@RequestBody String data, @RequestHeader(name ="Authorization") String token) {
+
+        JSONObject objj = new JSONObject(data);
+
+        if(objj.has("login")){
+            String login = objj.getString("login");
+            User user = getUser(login);
+
+            if(user==null || !user.getToken().equals(token)){
+                JSONObject res = new JSONObject();
+                res.put("error","Invalid login or token");
+                return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+            }
+            JSONArray res = new JSONArray();
+            for(String record:log){
+                JSONObject temp = new JSONObject(record);
+                if(temp.has("login") && temp.getString("login").equals(login)){
+                    res.put(temp);
+                }
+            }
+
+            return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+
+        }
+        else {
+            JSONObject res = new JSONObject();
+            res.put("error","Invalid body request, login is missing");
+            return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+
+        }
+
+
+    }
+
+    private String getCurrentDateTime(){
+        DateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+        Date date = new Date();
+        return(dateFormat.format(date));
+    }
+
 }
