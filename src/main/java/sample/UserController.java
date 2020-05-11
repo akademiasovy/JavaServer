@@ -9,23 +9,18 @@ import org.springframework.web.bind.annotation.*;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 @RestController
 public class UserController {
-    List<User> list =  new ArrayList<User>();
-    List<String> log =  new ArrayList<String>();
+    HashMap<String, String> listOfTokens =  new HashMap<>();
 
     public UserController() {
-        list.add(new User("Roman","Simko","roman","heslo"));
+
     }
 
     public boolean isTokenValid(String token) {
-        for(User useri : list)
-            if(useri.getToken()!=null && useri.getToken().equals(token))
+        if(listOfTokens.containsValue(token))
                 return true;
 
         return false;
@@ -36,14 +31,16 @@ public class UserController {
     public ResponseEntity<String> login(@RequestBody String credential){
         JSONObject obj = new JSONObject(credential);/*don't copy*/
         if(obj.has("login") && obj.has("password")){
+           Database db=new Database();
             JSONObject res = new JSONObject();
             if(obj.getString("password").isEmpty() || obj.getString("login").isEmpty()){
                 res.put("error","Password and login are mandatory fields");
                 return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
             }
-            if(existLogin(obj.getString("login")) && checkPassword(obj.getString("login"), obj.getString("password")))
+            if(db.existUser(obj.getString("login")) && checkPassword(obj.getString("login"), obj.getString("password")))
             {  // heslo aj login su OK
-                User loggedUser=getUser(obj.getString("login"));
+
+                User loggedUser=new Database().getUser(obj.getString("login"));
                     if(loggedUser==null){
                     // tento riadok by sa nemal nikdy vykonat, osetrene kvoli jave
                         return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body("{}");
@@ -53,7 +50,7 @@ public class UserController {
                     res.put("login",loggedUser.getLogin());
                     String token = generateToken();
                     res.put("token",token);
-                    loggedUser.setToken(token);
+                    listOfTokens.put(loggedUser.getLogin(),token);
                    writeLog("login",loggedUser.getLogin());
                     return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body(res.toString());
             }
@@ -70,10 +67,10 @@ public class UserController {
     }
 
     private boolean checkPassword(String login, String password) {
-        String pass;
-        User user = getUser(login);
-            if(user!=null){
-                if(BCrypt.checkpw(password,user.getPassword()))
+        String pass = new Database().getPassword(login);
+
+            if(pass!=null){
+                if(BCrypt.checkpw(password,pass))
                     return true;
             }
         return false;
@@ -86,7 +83,7 @@ public class UserController {
 
         if(objj.has("fname") && objj.has("lname")&& objj.has("login")&& objj.has("password"))
         { // vstup je ok, mame vsetky kluce
-            if(existLogin(objj.getString("login"))){
+            if(new Database().existUser(objj.getString("login"))){
                 JSONObject res = new JSONObject();
                 res.put("error","User already exists");
                 return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
@@ -100,7 +97,13 @@ public class UserController {
             String hashPass = hash(objj.getString("password"));
 
             User user = new User(objj.getString("fname"), objj.getString("lname"), objj.getString("login"), hashPass);
-            list.add(user);
+
+            boolean result = new Database().addUser(user);
+            if(!result){
+                JSONObject res = new JSONObject();
+                res.put("error","Database issue");
+                return ResponseEntity.status(500).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+            }
             JSONObject res = new JSONObject();
             res.put("fname",objj.getString("fname"));
             res.put("lname",objj.getString("lname"));
@@ -118,23 +121,15 @@ public class UserController {
         return BCrypt.hashpw(password, BCrypt.gensalt(12));
     }
 
-    private boolean existLogin(String login) {
-        for(User user : list){
-            if(user.getLogin().equalsIgnoreCase(login))
-                    return true;
-        }
-        return false;
-    }
-
     @RequestMapping(method=RequestMethod.POST, value="/logout")
     public ResponseEntity<String> logout(@RequestBody String data, @RequestHeader(name = "Authorization") String token){
         JSONObject obj = new JSONObject(data);
 
         String login = obj.getString("login");
-        User user = getUser(login);
-        if(user!=null && isTokenValid(token)){
+        User user = new Database().getUser(login);
+        if(user!=null && token.equals(listOfTokens.get(login))){
             // login aj token su ok, ideme odhlasit
-            user.setToken(null);
+            listOfTokens.remove(login);
             writeLog("logout",user.getLogin());
             return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body("{}");
         }
@@ -181,15 +176,6 @@ public class UserController {
         else return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body("{\"error\":\"Invalid token\"}");
     }
 
-    private User getUser(String login){
-        for(User user:list){
-            if(user.getLogin().equals(login))
-                return user;
-        }
-        return null;
-    }
-
-
     @RequestMapping("/users")
     public ResponseEntity<String> getUsers(@RequestParam(value="token") String token) {
 
@@ -198,7 +184,8 @@ public class UserController {
         }
         if(isTokenValid(token)){
             JSONArray array = new JSONArray();
-            for(User user : list){
+            List<User> users= new Database().getUsers();
+            for(User user : users){
                 JSONObject obj = new JSONObject();
                 obj.put("fname",user.getFname());
                 obj.put("lname",user.getLname());
@@ -221,7 +208,7 @@ public class UserController {
 
         if(isTokenValid(token)){
                 JSONObject obj = new JSONObject();
-                User user = getUser(login);
+                User user = new Database().getUser(login);
                 if(user==null){
                     return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body("{\"error\":\"Invalid user name\"}");
                 }
@@ -236,15 +223,12 @@ public class UserController {
     }
 
     private void writeLog(String type, String login) {
-        JSONObject obj = new JSONObject();
-        obj.put("type",type);
-        obj.put("login",login);
-        obj.put("datetime",getCurrentDateTime());
-        log.add(obj.toString());
+        Log log = new Log(login,getCurrentDateTime(),type);
+        new Database().addLog(log);
     }
 
-    @RequestMapping(method=RequestMethod.POST, value="/changepassword")
-    public ResponseEntity<String> changePasswd(@RequestBody String data){
+    @RequestMapping(method=RequestMethod.PATCH, value="/changepassword")
+    public ResponseEntity<String> changePasswd(@RequestBody String data ){
         //System.out.println(data);
         JSONObject objj = new JSONObject(data);
 
@@ -258,7 +242,7 @@ public class UserController {
                 res.put("error","Passwords are mandatory fields");
                 return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
             }
-            if(!existLogin(login) || !checkPassword(login,oldpassword)){
+            if(!new Database().existUser(login) || !checkPassword(login,oldpassword)){
                 JSONObject res = new JSONObject();
                 res.put("error","Invalid login or password");
                 return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(res.toString());
@@ -266,8 +250,9 @@ public class UserController {
 
             String hashPass = hash(objj.getString("newpassword"));
 
-            User user = getUser(login);
+            User user = new Database().getUser(login);
             user.setPassword(hashPass);
+            new Database().changePassword(user);
             writeLog("password change",user.getLogin());
             return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body("{}");
         }
@@ -285,19 +270,24 @@ public class UserController {
 
         if(objj.has("login")){
             String login = objj.getString("login");
-            User user = getUser(login);
+            User user = new Database().getUser(login);
 
-            if(user==null || !user.getToken().equals(token)){
+            String token2 = listOfTokens.get(login);
+            if(user==null || token2==null || !token2.equals(token)){
                 JSONObject res = new JSONObject();
                 res.put("error","Invalid login or token");
                 return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(res.toString());
             }
             JSONArray res = new JSONArray();
-            for(String record:log){
-                JSONObject temp = new JSONObject(record);
-                if(temp.has("login") && temp.getString("login").equals(login)){
-                    res.put(temp);
-                }
+            List<Log> logs = new Database().getLogs(login);
+
+            for(Log temp:logs){
+                JSONObject obj = new JSONObject();
+                obj.put("date",temp.getDate());
+                obj.put("type",temp.getType());
+                obj.put("login",login);
+
+                   res.put(obj);
             }
 
             return ResponseEntity.status(200).contentType(MediaType.APPLICATION_JSON).body(res.toString());
@@ -319,4 +309,33 @@ public class UserController {
         return(dateFormat.format(date));
     }
 
+    @RequestMapping(method=RequestMethod.POST, value="/message/new")
+    public ResponseEntity<String> postMessage(@RequestBody String data, @RequestHeader(name = "Authorization") String token){
+        JSONObject obj = new JSONObject(data);/*don't copy*/
+        if(obj.has("from") && obj.has("to") && obj.has("message")){
+            String from = obj.getString("from");
+            String to = obj.getString("to");
+            String message = obj.getString("message");
+            Database db=new Database();
+            if(!isTokenValid(token)){
+                JSONObject res = new JSONObject();
+                res.put("error","Invalid token");
+                return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+            }
+            /*if(!db.existUser(from) || !db.existUser(to)){
+                JSONObject res = new JSONObject();
+                res.put("error","User does not exist");
+                return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+            }*/
+            Message newMessage = new Message(from,to,getCurrentDateTime(),message);
+            db.addMessage(newMessage);
+            return ResponseEntity.status(201).contentType(MediaType.APPLICATION_JSON).body("{}");
+
+        }
+        else {
+            JSONObject res = new JSONObject();
+            res.put("error","Invalid body request");
+            return ResponseEntity.status(400).contentType(MediaType.APPLICATION_JSON).body(res.toString());
+        }
+    }
 }
